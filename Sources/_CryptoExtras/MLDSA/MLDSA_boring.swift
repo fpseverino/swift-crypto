@@ -45,7 +45,8 @@ extension MLDSA65 {
         ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
         ///   - publicKey: The public key associated with the secret key.
         ///
-        /// - Throws: `CryptoKitError.incorrectKeySize` if the seed is not 32 bytes long.
+        /// - Throws: ``MLDSA65/Errors/invalidInputLength`` if the seed is not 32 bytes long,
+        ///   ``MLDSA65/Errors/publicKeyMismatchDuringInitialization`` if the provided public key doesn't match.
         public init(seedRepresentation: some DataProtocol, publicKey: MLDSA65.PublicKey?) throws {
             self.backing = try Backing(seedRepresentation: seedRepresentation, publicKey: publicKey)
         }
@@ -142,8 +143,8 @@ extension MLDSA65 {
             ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
             ///   - publicKey: The public key associated with the secret key.
             ///
-            /// - Throws: `MLDSA65.Errors.invalidInputLength` if the seed is not 32 bytes long,
-            ///   `MLDSA65.Errors.publicKeyMismatchDuringInitialization` if the provided public key doesn't match.
+            /// - Throws: ``MLDSA65/Errors/invalidInputLength`` if the seed is not 32 bytes long,
+            ///   ``MLDSA65/Errors/publicKeyMismatchDuringInitialization`` if the provided public key doesn't match.
             init(seedRepresentation: some DataProtocol, publicKey: MLDSA65.PublicKey?) throws {
                 guard seedRepresentation.count == MLDSA.seedByteCount else {
                     throw MLDSA65.Errors.invalidInputLength
@@ -266,7 +267,7 @@ extension MLDSA65 {
         ///
         /// - Parameter rawRepresentation: The public key bytes.
         ///
-        /// - Throws: `CryptoKitError.incorrectKeySize` if the raw representation is not the correct size.
+        /// - Throws: ``MLDSA65/Errors/invalidInputLength`` if the raw representation is not the correct size.
         public init(rawRepresentation: some DataProtocol) throws {
             self.backing = try Backing(rawRepresentation: rawRepresentation)
         }
@@ -323,10 +324,10 @@ extension MLDSA65 {
             ///
             /// - Parameter rawRepresentation: The public key bytes.
             ///
-            /// - Throws: `CryptoKitError.incorrectKeySize` if the raw representation is not the correct size.
+            /// - Throws: ``MLDSA65/Errors/invalidInputLength`` if the raw representation is not the correct size.
             init(rawRepresentation: some DataProtocol) throws {
                 guard rawRepresentation.count == MLDSA65.PublicKey.Backing.byteCount else {
-                    throw CryptoKitError.incorrectKeySize
+                    throw MLDSA65.Errors.invalidInputLength
                 }
 
                 self.key = .init()
@@ -438,7 +439,8 @@ extension MLDSA87 {
         ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
         ///   - publicKey: The public key associated with the secret key.
         ///
-        /// - Throws: `CryptoKitError.incorrectKeySize` if the seed is not 32 bytes long.
+        /// - Throws: ``MLDSA87/Errors/invalidInputLength`` if the seed is not 32 bytes long,
+        ///   ``MLDSA87/Errors/publicKeyMismatchDuringInitialization`` if the provided public key doesn't match.
         public init(seedRepresentation: some DataProtocol, publicKey: MLDSA87.PublicKey?) throws {
             self.backing = try Backing(seedRepresentation: seedRepresentation, publicKey: publicKey)
         }
@@ -535,8 +537,8 @@ extension MLDSA87 {
             ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
             ///   - publicKey: The public key associated with the secret key.
             ///
-            /// - Throws: `MLDSA87.Errors.invalidInputLength` if the seed is not 32 bytes long,
-            ///   `MLDSA87.Errors.publicKeyMismatchDuringInitialization` if the provided public key doesn't match.
+            /// - Throws: ``MLDSA87/Errors/invalidInputLength`` if the seed is not 32 bytes long,
+            ///   ``MLDSA87/Errors/publicKeyMismatchDuringInitialization`` if the provided public key doesn't match.
             init(seedRepresentation: some DataProtocol, publicKey: MLDSA87.PublicKey?) throws {
                 guard seedRepresentation.count == MLDSA.seedByteCount else {
                     throw MLDSA87.Errors.invalidInputLength
@@ -659,7 +661,7 @@ extension MLDSA87 {
         ///
         /// - Parameter rawRepresentation: The public key bytes.
         ///
-        /// - Throws: `CryptoKitError.incorrectKeySize` if the raw representation is not the correct size.
+        /// - Throws: ``MLDSA87/Errors/invalidInputLength`` if the raw representation is not the correct size.
         public init(rawRepresentation: some DataProtocol) throws {
             self.backing = try Backing(rawRepresentation: rawRepresentation)
         }
@@ -716,10 +718,10 @@ extension MLDSA87 {
             ///
             /// - Parameter rawRepresentation: The public key bytes.
             ///
-            /// - Throws: `CryptoKitError.incorrectKeySize` if the raw representation is not the correct size.
+            /// - Throws: ``MLDSA87/Errors/invalidInputLength`` if the raw representation is not the correct size.
             init(rawRepresentation: some DataProtocol) throws {
                 guard rawRepresentation.count == MLDSA87.PublicKey.Backing.byteCount else {
-                    throw CryptoKitError.incorrectKeySize
+                    throw MLDSA87.Errors.invalidInputLength
                 }
 
                 self.key = .init()
