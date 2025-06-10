@@ -35,18 +35,39 @@ extension MLDSA65 {
             self.backing = try Backing()
         }
 
-        /// Initialize a ML-DSA-65 private key from a seed.
+        /// Initializes a private key from the seed representation.
         ///
-        /// - Parameter seedRepresentation: The seed to use to generate the private key.
+        /// This initializer implements the `ML-DSA.KeyGen_internal` algorithm (Algorithm 16) of FIPS 204.
+        ///
+        /// If a public key is provided, a consistency check is performed between it and the derived public key.
+        ///
+        /// - Parameters:
+        ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
+        ///   - publicKey: The public key associated with the secret key.
         ///
         /// - Throws: `CryptoKitError.incorrectKeySize` if the seed is not 32 bytes long.
-        public init(seedRepresentation: some DataProtocol) throws {
-            self.backing = try Backing(seedRepresentation: seedRepresentation)
+        public init(seedRepresentation: some DataProtocol, publicKey: MLDSA65.PublicKey?) throws {
+            self.backing = try Backing(seedRepresentation: seedRepresentation, publicKey: publicKey)
         }
 
         /// The seed from which this private key was generated.
         public var seedRepresentation: Data {
             self.backing.seed
+        }
+
+        /// Initializes a private key from an integrity-checked data representation.
+        ///
+        /// - Parameter integrityCheckedRepresentation: The integrity-checked data representation of the private key.
+        ///   The parameter needs to be 64 bytes long, and contain the seed and a hash of the public key.
+        public init(integrityCheckedRepresentation: some DataProtocol) throws {
+            self.backing = try Backing(integrityCheckedRepresentation: integrityCheckedRepresentation)
+        }
+
+        /// The integrity-checked data representation of the private key.
+        ///
+        /// This representation is 64 bytes long, and contains the seed and a hash of the public key.
+        public var integrityCheckedRepresentation: Data {
+            self.backing.integrityCheckedRepresentation
         }
 
         /// The public key associated with this private key.
@@ -111,14 +132,21 @@ extension MLDSA65 {
                 }
             }
 
-            /// Initialize a ML-DSA-65 private key from a seed.
+            /// Initializes a private key from the seed representation.
             ///
-            /// - Parameter seedRepresentation: The seed to use to generate the private key.
+            /// This initializer implements the `ML-DSA.KeyGen_internal` algorithm (Algorithm 16) of FIPS 204.
             ///
-            /// - Throws: `CryptoKitError.incorrectKeySize` if the seed is not 32 bytes long.
-            init(seedRepresentation: some DataProtocol) throws {
+            /// If a public key is provided, a consistency check is performed between it and the derived public key.
+            ///
+            /// - Parameters:
+            ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
+            ///   - publicKey: The public key associated with the secret key.
+            ///
+            /// - Throws: `MLDSA65.Errors.invalidInputLength` if the seed is not 32 bytes long,
+            ///   `MLDSA65.Errors.publicKeyMismatchDuringInitialization` if the provided public key doesn't match.
+            init(seedRepresentation: some DataProtocol, publicKey: MLDSA65.PublicKey?) throws {
                 guard seedRepresentation.count == MLDSA.seedByteCount else {
-                    throw CryptoKitError.incorrectKeySize
+                    throw MLDSA65.Errors.invalidInputLength
                 }
 
                 self.key = .init()
@@ -135,6 +163,49 @@ extension MLDSA65 {
                 else {
                     throw CryptoKitError.internalBoringSSLError()
                 }
+
+                if let publicKey {
+                    var publicKeyFromPrivateKey = MLDSA65_public_key()
+                    CCryptoBoringSSL_MLDSA65_public_from_private(&publicKeyFromPrivateKey, &self.key)
+                    let publicKeyFromPrivateKeyBacking = MLDSA65.PublicKey.Backing(publicKeyFromPrivateKey)
+                    guard publicKeyFromPrivateKeyBacking.rawRepresentation == publicKey.rawRepresentation else {
+                        throw MLDSA65.Errors.publicKeyMismatchDuringInitialization
+                    }
+                }
+            }
+
+            /// Initializes a private key from an integrity-checked data representation.
+            ///
+            /// - Parameter integrityCheckedRepresentation: The integrity-checked data representation of the private key.
+            ///   The parameter needs to be 64 bytes long, and contain the seed and a hash of the public key.
+            init(integrityCheckedRepresentation: some DataProtocol) throws {
+                guard integrityCheckedRepresentation.count == 64 else {
+                    throw MLDSA65.Errors.invalidInputLength
+                }
+
+                self.key = .init()
+                self.seed = Data(integrityCheckedRepresentation).subdata(in: 0..<MLDSA.seedByteCount)
+
+                guard
+                    self.seed.withUnsafeBytes({ seedPtr in
+                        CCryptoBoringSSL_MLDSA65_private_key_from_seed(
+                            &self.key,
+                            seedPtr.baseAddress,
+                            MLDSA.seedByteCount
+                        )
+                    }) == 1
+                else {
+                    throw CryptoKitError.internalBoringSSLError()
+                }
+
+                // TODO: Implement the integrity check using SHA3
+            }
+
+            /// The integrity-checked data representation of the private key.
+            ///
+            /// This representation is 64 bytes long, and contains the seed and a hash of the public key.
+            var integrityCheckedRepresentation: Data {
+                fatalError("SHA3 is needed to implement this property, which is not available as of now.")
             }
 
             /// The public key associated with this private key.
@@ -212,9 +283,9 @@ extension MLDSA65 {
         ///   - data: The message to verify the signature against.
         ///
         /// - Returns: `true` if the signature is valid, `false` otherwise.
-        public func isValidSignature<S: DataProtocol, D: DataProtocol>(_ signature: S, for data: D) -> Bool {
+        public func isValidSignature<S: DataProtocol, D: DataProtocol>(signature: S, for data: D) -> Bool {
             let context: Data? = nil
-            return self.backing.isValidSignature(signature, for: data, context: context)
+            return self.backing.isValidSignature(signature: signature, for: data, context: context)
         }
 
         /// Verify a signature for the given data.
@@ -226,11 +297,11 @@ extension MLDSA65 {
         ///
         /// - Returns: `true` if the signature is valid, `false` otherwise.
         public func isValidSignature<S: DataProtocol, D: DataProtocol, C: DataProtocol>(
-            _ signature: S,
+            signature: S,
             for data: D,
             context: C
         ) -> Bool {
-            self.backing.isValidSignature(signature, for: data, context: context)
+            self.backing.isValidSignature(signature: signature, for: data, context: context)
         }
 
         /// The size of the public key in bytes.
@@ -238,6 +309,10 @@ extension MLDSA65 {
 
         fileprivate final class Backing {
             private var key: MLDSA65_public_key
+
+            init(_ key: MLDSA65_public_key) {
+                self.key = key
+            }
 
             init(privateKeyBacking: PrivateKey.Backing) {
                 self.key = .init()
@@ -289,7 +364,7 @@ extension MLDSA65 {
             ///
             /// - Returns: `true` if the signature is valid, `false` otherwise.
             func isValidSignature<S: DataProtocol, D: DataProtocol, C: DataProtocol>(
-                _ signature: S,
+                signature: S,
                 for data: D,
                 context: C?
             ) -> Bool {
@@ -326,6 +401,18 @@ extension MLDSA65 {
     private static let signatureByteCount = Int(MLDSA65_SIGNATURE_BYTES)
 }
 
+@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+extension MLDSA65 {
+    /// Errors that CryptoKit encounters in using module lattice digital signature algorithms.
+    enum Errors: Error, Sendable {
+        /// The input’s length is invalid.
+        case invalidInputLength
+
+        /// The public key doesn’t match the expected value during initialization.
+        case publicKeyMismatchDuringInitialization
+    }
+}
+
 /// A module-lattice-based digital signature algorithm that provides security against quantum computing attacks.
 @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 public enum MLDSA87 {}
@@ -341,18 +428,39 @@ extension MLDSA87 {
             self.backing = try Backing()
         }
 
-        /// Initialize a ML-DSA-87 private key from a seed.
+        /// Initializes a private key from the seed representation.
         ///
-        /// - Parameter seedRepresentation: The seed to use to generate the private key.
+        /// This initializer implements the `ML-DSA.KeyGen_internal` algorithm (Algorithm 16) of FIPS 204.
+        ///
+        /// If a public key is provided, a consistency check is performed between it and the derived public key.
+        ///
+        /// - Parameters:
+        ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
+        ///   - publicKey: The public key associated with the secret key.
         ///
         /// - Throws: `CryptoKitError.incorrectKeySize` if the seed is not 32 bytes long.
-        public init(seedRepresentation: some DataProtocol) throws {
-            self.backing = try Backing(seedRepresentation: seedRepresentation)
+        public init(seedRepresentation: some DataProtocol, publicKey: MLDSA87.PublicKey?) throws {
+            self.backing = try Backing(seedRepresentation: seedRepresentation, publicKey: publicKey)
         }
 
         /// The seed from which this private key was generated.
         public var seedRepresentation: Data {
             self.backing.seed
+        }
+
+        /// Initializes a private key from an integrity-checked data representation.
+        ///
+        /// - Parameter integrityCheckedRepresentation: The integrity-checked data representation of the private key.
+        ///   The parameter needs to be 64 bytes long, and contain the seed and a hash of the public key.
+        public init(integrityCheckedRepresentation: some DataProtocol) throws {
+            self.backing = try Backing(integrityCheckedRepresentation: integrityCheckedRepresentation)
+        }
+
+        /// The integrity-checked data representation of the private key.
+        ///
+        /// This representation is 64 bytes long, and contains the seed and a hash of the public key.
+        public var integrityCheckedRepresentation: Data {
+            self.backing.integrityCheckedRepresentation
         }
 
         /// The public key associated with this private key.
@@ -417,14 +525,21 @@ extension MLDSA87 {
                 }
             }
 
-            /// Initialize a ML-DSA-87 private key from a seed.
+            /// Initializes a private key from the seed representation.
             ///
-            /// - Parameter seedRepresentation: The seed to use to generate the private key.
+            /// This initializer implements the `ML-DSA.KeyGen_internal` algorithm (Algorithm 16) of FIPS 204.
             ///
-            /// - Throws: `CryptoKitError.incorrectKeySize` if the seed is not 32 bytes long.
-            init(seedRepresentation: some DataProtocol) throws {
+            /// If a public key is provided, a consistency check is performed between it and the derived public key.
+            ///
+            /// - Parameters:
+            ///   - seedRepresentation: The seed representation of the private key. This parameter needs to be 32 bytes long.
+            ///   - publicKey: The public key associated with the secret key.
+            ///
+            /// - Throws: `MLDSA87.Errors.invalidInputLength` if the seed is not 32 bytes long,
+            ///   `MLDSA87.Errors.publicKeyMismatchDuringInitialization` if the provided public key doesn't match.
+            init(seedRepresentation: some DataProtocol, publicKey: MLDSA87.PublicKey?) throws {
                 guard seedRepresentation.count == MLDSA.seedByteCount else {
-                    throw CryptoKitError.incorrectKeySize
+                    throw MLDSA87.Errors.invalidInputLength
                 }
 
                 self.key = .init()
@@ -441,6 +556,49 @@ extension MLDSA87 {
                 else {
                     throw CryptoKitError.internalBoringSSLError()
                 }
+
+                if let publicKey {
+                    var publicKeyFromPrivateKey = MLDSA87_public_key()
+                    CCryptoBoringSSL_MLDSA87_public_from_private(&publicKeyFromPrivateKey, &self.key)
+                    let publicKeyFromPrivateKeyBacking = MLDSA87.PublicKey.Backing(publicKeyFromPrivateKey)
+                    guard publicKeyFromPrivateKeyBacking.rawRepresentation == publicKey.rawRepresentation else {
+                        throw MLDSA87.Errors.publicKeyMismatchDuringInitialization
+                    }
+                }
+            }
+
+            /// Initializes a private key from an integrity-checked data representation.
+            ///
+            /// - Parameter integrityCheckedRepresentation: The integrity-checked data representation of the private key.
+            ///   The parameter needs to be 64 bytes long, and contain the seed and a hash of the public key.
+            init(integrityCheckedRepresentation: some DataProtocol) throws {
+                guard integrityCheckedRepresentation.count == 64 else {
+                    throw MLDSA87.Errors.invalidInputLength
+                }
+
+                self.key = .init()
+                self.seed = Data(integrityCheckedRepresentation).subdata(in: 0..<MLDSA.seedByteCount)
+
+                guard
+                    self.seed.withUnsafeBytes({ seedPtr in
+                        CCryptoBoringSSL_MLDSA87_private_key_from_seed(
+                            &self.key,
+                            seedPtr.baseAddress,
+                            MLDSA.seedByteCount
+                        )
+                    }) == 1
+                else {
+                    throw CryptoKitError.internalBoringSSLError()
+                }
+
+                // TODO: Implement the integrity check using SHA3
+            }
+
+            /// The integrity-checked data representation of the private key.
+            ///
+            /// This representation is 64 bytes long, and contains the seed and a hash of the public key.
+            var integrityCheckedRepresentation: Data {
+                fatalError("SHA3 is needed to implement this property, which is not available as of now.")
             }
 
             /// The public key associated with this private key.
@@ -518,9 +676,9 @@ extension MLDSA87 {
         ///   - data: The message to verify the signature against.
         ///
         /// - Returns: `true` if the signature is valid, `false` otherwise.
-        public func isValidSignature<S: DataProtocol, D: DataProtocol>(_ signature: S, for data: D) -> Bool {
+        public func isValidSignature<S: DataProtocol, D: DataProtocol>(signature: S, for data: D) -> Bool {
             let context: Data? = nil
-            return self.backing.isValidSignature(signature, for: data, context: context)
+            return self.backing.isValidSignature(signature: signature, for: data, context: context)
         }
 
         /// Verify a signature for the given data.
@@ -532,11 +690,11 @@ extension MLDSA87 {
         ///
         /// - Returns: `true` if the signature is valid, `false` otherwise.
         public func isValidSignature<S: DataProtocol, D: DataProtocol, C: DataProtocol>(
-            _ signature: S,
+            signature: S,
             for data: D,
             context: C
         ) -> Bool {
-            self.backing.isValidSignature(signature, for: data, context: context)
+            self.backing.isValidSignature(signature: signature, for: data, context: context)
         }
 
         /// The size of the public key in bytes.
@@ -544,6 +702,10 @@ extension MLDSA87 {
 
         fileprivate final class Backing {
             private var key: MLDSA87_public_key
+
+            init(_ key: MLDSA87_public_key) {
+                self.key = key
+            }
 
             init(privateKeyBacking: PrivateKey.Backing) {
                 self.key = .init()
@@ -595,7 +757,7 @@ extension MLDSA87 {
             ///
             /// - Returns: `true` if the signature is valid, `false` otherwise.
             func isValidSignature<S: DataProtocol, D: DataProtocol, C: DataProtocol>(
-                _ signature: S,
+                signature: S,
                 for data: D,
                 context: C?
             ) -> Bool {
@@ -630,6 +792,18 @@ extension MLDSA87 {
 extension MLDSA87 {
     /// The size of the signature in bytes.
     private static let signatureByteCount = Int(MLDSA87_SIGNATURE_BYTES)
+}
+
+@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+extension MLDSA87 {
+    /// Errors that CryptoKit encounters in using module lattice digital signature algorithms.
+    enum Errors: Error, Sendable {
+        /// The input’s length is invalid.
+        case invalidInputLength
+
+        /// The public key doesn’t match the expected value during initialization.
+        case publicKeyMismatchDuringInitialization
+    }
 }
 
 private enum MLDSA {
